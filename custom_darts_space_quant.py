@@ -14,71 +14,171 @@ from nni.nas.nn.pytorch import (
 
 
 def _quantize_ste(x: torch.Tensor, k: int) -> torch.Tensor:
-	levels = (2 ** int(k)) - 1
-	if levels <= 0:
-		return torch.zeros_like(x)
-	x_q = torch.round(x * levels) / levels
-	return x + (x_q - x).detach()
+    """Quantize tensor x to k bits using a straight-through estimator (STE).
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        Input tensor to quantize.
+    k : int
+        Number of quantization bits.
+    """
+    # Number of representable integer steps in [0, 1].
+    levels = (2 ** int(k)) - 1
+    if levels <= 0:
+        # Degenerate case (k <= 0): return all zeros.
+        return torch.zeros_like(x)
+
+    # Forward quantization (discrete values).
+    x_q = torch.round(x * levels) / levels
+    # STE/quantization trick: forward uses x_q, backward gradient flows as if identity on x.
+    return x + (x_q - x).detach()
 
 
 def dorefa_weight(weight: torch.Tensor, k: int) -> torch.Tensor:
-	w = torch.tanh(weight)
-	max_val = w.detach().abs().max()
-	w_norm = w / (2 * max_val + 1e-8) + 0.5
-	return 2 * _quantize_ste(w_norm, k) - 1
+    """DoReFa quantization for convolution weights.
+
+    Steps:
+    1) tanh squash,
+    2) normalize to [0, 1],
+    3) quantize to k bits,
+    4) map back to [-1, 1].
+    """
+    # Bound raw weights to a stable range.
+    weight_tanh = torch.tanh(weight)
+
+    # Scale factor (detached to avoid gradient flowing through max operation).
+    max_val = weight_tanh.detach().abs().max()
+
+    # Map from (approximately) [-1, 1] to [0, 1].
+    weight_norm = weight_tanh / (2 * max_val + 1e-8) + 0.5
+
+    # Quantize normalized weights.
+    weight_q = 2 * _quantize_ste(weight_norm, k) - 1
+    return weight_q
 
 
 def dorefa_activation(x: torch.Tensor, k: int) -> torch.Tensor:
-	return _quantize_ste(torch.clamp(x, 0.0, 1.0), k)
+    """DoReFa-style activation quantization.
 
+    Activations are clipped to [0, 1] first, then quantized to k bits.
+    """
+    return _quantize_ste(torch.clamp(x, 0.0, 1.0), k)
 
+# MUTABLE: base class for every class representing a search space.
 class MutableDoReFaConv2d(MutableConv2d):
-	"""MutableConv2d with DoReFa quantization in forward."""
+    """NNI MutableConv2d + DoReFa quantization.
 
-	def __init__(self, *args, num_bits: int = 4, **kwargs):
-		super().__init__(*args, **kwargs)
-		self.num_bits = int(num_bits)
+    Structural parameters (kernel_size, stride, etc.) can be mutable exactly
+    like MutableConv2d, while quantization bitwidth is a fixed parameter.
+    """
 
-	def forward(self, x: torch.Tensor) -> torch.Tensor:
-		w_q = dorefa_weight(self.weight, self.num_bits)
-		x_q = dorefa_activation(x, self.num_bits)
-		return self._conv_forward(x_q, w_q, self.bias)
+    def __init__( 
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int = 1,
+        padding: int = 0,
+        dilation: int = 1,
+        groups: int = 1,
+        bias: bool = True,
+        padding_mode: str = 'zeros',
+        device=None,
+        dtype=None,
+        num_bits: int = 4,
+    ) -> None:
+        # Initialize the parent mutable convolution. Any mutable structural args
+        # passed here are tracked by MutableConv2d.
+        super().__init__(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
+            padding_mode=padding_mode,
+            device=device,
+            dtype=dtype,
+        )
 
-	def freeze(self, sample):
-		self.validate(sample)
-		args, kwargs = self.freeze_init_arguments(sample, *self.trace_args, **self.trace_kwargs)
-		frozen = MutableDoReFaConv2d(*args, **kwargs)
-		frozen.load_state_dict(self.state_dict(), strict=False)
-		return frozen
+        # Fixed quantization precision configured outside NAS.
+        self.num_bits = int(num_bits)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Quantize both weights and inputs (activations from previous layer).
+        w_q = dorefa_weight(self.weight, self.num_bits)
+        x_q = dorefa_activation(x, self.num_bits)
+
+        # Reuse Conv2d internal forward (handles padding mode/groups/etc.).
+        return self._conv_forward(x_q, w_q, self.bias)
+
+    # FREEZE: convert from mutable search space to deterministic model.
+    # WORKFLOW: FREEZE a model, then train it, then checkpoint or export it.
+
+    def freeze(self, sample: dict[str, int]) -> nn.Module:
+
+        # Confirm that provided architecture sample contains legal choices.
+        self.validate(sample)
+
+        # Freeze structural mutables from MutableConv2d trace args.
+        args, kwargs = self.freeze_init_arguments(sample, *self.trace_args, **self.trace_kwargs)
+
+        # Build a deterministic clone.
+        frozen_layer = MutableDoReFaConv2d(*args, **kwargs)
+
+        # Copy learned float weights/bias.
+        frozen_layer.load_state_dict(self.state_dict(), strict=False)
+
+        return frozen_layer
 
 
 class MutableDoReFaLinear(MutableLinear):
-	"""MutableLinear with DoReFa quantization in forward."""
+    """NNI MutableLinear + DoReFa quantization.
 
-	def __init__(self, *args, num_bits: int = 4, **kwargs):
-		super().__init__(*args, **kwargs)
-		self.num_bits = int(num_bits)
+    Structural parameters (in_features/out_features) can be mutable exactly
+    like MutableLinear, while quantization bitwidth is a fixed parameter.
+    """
 
-	def forward(self, x: torch.Tensor) -> torch.Tensor:
-		w_q = dorefa_weight(self.weight, self.num_bits)
-		x_q = dorefa_activation(x, self.num_bits)
-		return F.linear(x_q, w_q, self.bias)
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool = True,
+        device=None,
+        dtype=None,
+        num_bits: int = 4,
+    ) -> None:
+        super().__init__(
+            in_features,
+            out_features,
+            bias=bias,
+            device=device,
+            dtype=dtype,
+        )
+        self.num_bits = int(num_bits)
 
-	def freeze(self, sample):
-		self.validate(sample)
-		args, kwargs = self.freeze_init_arguments(sample, *self.trace_args, **self.trace_kwargs)
-		frozen = MutableDoReFaLinear(*args, **kwargs)
-		frozen.load_state_dict(self.state_dict(), strict=False)
-		return frozen
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        w_q = dorefa_weight(self.weight, self.num_bits)
+        x_q = dorefa_activation(x, self.num_bits)
+        return F.linear(x_q, w_q, self.bias)
+
+    def freeze(self, sample: dict[str, int]) -> nn.Module:
+        self.validate(sample)
+        args, kwargs = self.freeze_init_arguments(sample, *self.trace_args, **self.trace_kwargs)
+        frozen_layer = MutableDoReFaLinear(*args, **kwargs)
+        frozen_layer.load_state_dict(self.state_dict(), strict=False)
+        return frozen_layer
 
 
 class CustomDARTSSpace(ModelSpace):
-	"""Patched quantization-aware DARTS search space.
+	"""Quantization-aware DARTS search space with DoReFa quantization.
 
-	This corresponds to a DOF-10 style space:
-	- LayerChoice on first 2 blocks
-	- channel choices for layer1_out and layer2_out
-	- remaining conv stack fixed structure
+	This corresponds to a flexible search space with:
+	- LayerChoice on first 2 blocks (pool/conv ordering)
+	- channel choices for layers 1-6
 	- all learnable conv/linear ops quantized via DoReFa wrappers
 	"""
 
@@ -86,7 +186,7 @@ class CustomDARTSSpace(ModelSpace):
 		self,
 		input_channels: int = 3,
 		channels: int = 64,
-		num_classes: int = 43,
+		num_classes: int = 10,
 		layers: int = 7,
 		verbose: int = 0,
 		drop_path_prob: float = 0.1,
@@ -100,10 +200,10 @@ class CustomDARTSSpace(ModelSpace):
 		layer0_out = 16
 		layer1_out = nni.choice("layer1_out_channels", [16, 32, 64])
 		layer2_out = nni.choice("layer2_out_channels", [16, 32, 64])
-		layer3_out = 16
-		layer4_out = 16
-		layer5_out = 16
-		layer6_out = 16
+		layer3_out = nni.choice("layer3_out_channels", [16, 32, 64])
+		layer4_out = nni.choice("layer4_out_channels", [16, 32, 64])
+		layer5_out = nni.choice("layer5_out_channels", [16, 32, 64])
+		layer6_out = nni.choice("layer6_out_channels", [16, 32, 64])
 		layer7_out = 22
 
 		# Quantize first stem conv as well for full QAT consistency.
@@ -180,55 +280,165 @@ class CustomDARTSSpace(ModelSpace):
 		)
 		self.layers.append(layer2)
 
-		self.layers.append(
-			nn.Sequential(
-				nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
-				MutableDoReFaConv2d(layer2_out, layer3_out, kernel_size=3, padding=0, bias=False, num_bits=num_bits),
-				MutableBatchNorm2d(layer3_out),
-				MutableReLU(),
-			)
+		layer3 = LayerChoice(
+			[
+				nn.Sequential(
+					nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
+					MutableDoReFaConv2d(
+						layer2_out,
+						layer3_out,
+						kernel_size=3,
+						bias=False,
+						num_bits=num_bits,
+					),
+					MutableBatchNorm2d(layer3_out),
+					MutableReLU(),
+				),
+				nn.Sequential(
+					MutableDoReFaConv2d(
+						layer2_out,
+						layer3_out,
+						kernel_size=3,
+						bias=False,
+						num_bits=num_bits,
+					),
+					nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
+					MutableBatchNorm2d(layer3_out),
+					MutableReLU(),
+				),
+			],
+			label="layer_3",
 		)
+		self.layers.append(layer3)
 
-		self.layers.append(
-			nn.Sequential(
-				nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
-				MutableDoReFaConv2d(layer3_out, layer4_out, kernel_size=3, padding=0, bias=False, num_bits=num_bits),
-				MutableBatchNorm2d(layer4_out),
-				MutableReLU(),
-			)
+		layer4 = LayerChoice(
+			[
+				nn.Sequential(
+					nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
+					MutableDoReFaConv2d(
+						layer3_out,
+						layer4_out,
+						kernel_size=3,
+						bias=False,
+						num_bits=num_bits,
+					),
+					MutableBatchNorm2d(layer4_out),
+					MutableReLU(),
+				),
+				nn.Sequential(
+					MutableDoReFaConv2d(
+						layer3_out,
+						layer4_out,
+						kernel_size=3,
+						bias=False,
+						num_bits=num_bits,
+					),
+					nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
+					MutableBatchNorm2d(layer4_out),
+					MutableReLU(),
+				),
+			],
+			label="layer_4",
 		)
+		self.layers.append(layer4)
 
-		self.layers.append(
-			nn.Sequential(
-				nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
-				MutableDoReFaConv2d(layer4_out, layer5_out, kernel_size=3, padding=0, bias=False, num_bits=num_bits),
-				MutableBatchNorm2d(layer5_out),
-				MutableReLU(),
-			)
+		layer5 = LayerChoice(
+			[
+				nn.Sequential(
+					nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
+					MutableDoReFaConv2d(
+						layer4_out,
+						layer5_out,
+						kernel_size=3,
+						bias=False,
+						num_bits=num_bits,
+					),
+					MutableBatchNorm2d(layer5_out),
+					MutableReLU(),
+				),
+				nn.Sequential(
+					MutableDoReFaConv2d(
+						layer4_out,
+						layer5_out,
+						kernel_size=3,
+						bias=False,
+						num_bits=num_bits,
+					),
+					nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
+					MutableBatchNorm2d(layer5_out),
+					MutableReLU(),
+				),
+			],
+			label="layer_5",
 		)
+		self.layers.append(layer5)
 
-		self.layers.append(
-			nn.Sequential(
-				nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
-				MutableDoReFaConv2d(layer5_out, layer6_out, kernel_size=3, padding=0, bias=False, num_bits=num_bits),
-				MutableBatchNorm2d(layer6_out),
-				MutableReLU(),
-			)
+		layer6 = LayerChoice(
+			[
+				nn.Sequential(
+					nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
+					MutableDoReFaConv2d(
+						layer5_out,
+						layer6_out,
+						kernel_size=3,
+						bias=False,
+						num_bits=num_bits,
+					),
+					MutableBatchNorm2d(layer6_out),
+					MutableReLU(),
+				),
+				nn.Sequential(
+					MutableDoReFaConv2d(
+						layer5_out,
+						layer6_out,
+						kernel_size=3,
+						bias=False,
+						num_bits=num_bits,
+					),
+					nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
+					MutableBatchNorm2d(layer6_out),
+					MutableReLU(),
+				),
+			],
+			label="layer_6",
 		)
+		self.layers.append(layer6)
 
-		self.layers.append(
-			nn.Sequential(
-				nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
-				MutableDoReFaConv2d(layer6_out, layer7_out, kernel_size=3, padding=0, bias=False, num_bits=num_bits),
-				MutableBatchNorm2d(layer7_out),
-				MutableReLU(),
-			)
+		layer7 = LayerChoice(
+			[
+				nn.Sequential(
+					nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
+					MutableDoReFaConv2d(
+						layer6_out,
+						layer7_out,
+						kernel_size=3,
+						bias=False,
+						num_bits=num_bits,
+					),
+					MutableBatchNorm2d(layer7_out),
+					MutableReLU(),
+				),
+				nn.Sequential(
+					MutableDoReFaConv2d(
+						layer6_out,
+						layer7_out,
+						kernel_size=3,
+						bias=False,
+						num_bits=num_bits,
+					),
+					nn.AvgPool2d(kernel_size=2, stride=1, padding=1),
+					MutableBatchNorm2d(layer7_out),
+					MutableReLU(),
+				),
+			],
+			label="layer_7",
 		)
+		self.layers.append(layer7)
 
 		self.pool = nn.AdaptiveAvgPool2d((3, 3))
-		feature1 = 32
-		feature2 = 32
-		feature3 = 32
+		feature1 = nni.choice("feature1", [32, 64, 128])
+		feature2 = nni.choice("feature2", [32, 64, 128])
+		feature3 = nni.choice("feature3", [32, 64])
 		self.fc1 = MutableDoReFaLinear(198, feature1, num_bits=num_bits)
 		self.fc2 = MutableDoReFaLinear(feature1, feature2, num_bits=num_bits)
 		self.fc3 = MutableDoReFaLinear(feature2, feature3, num_bits=num_bits)
