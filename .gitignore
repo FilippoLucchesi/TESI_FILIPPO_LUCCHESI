@@ -1,2 +1,7 @@
 /.venv
 /PhotonicNas-master
+/DartsCheckpoints_Quant
+/checkpoints
+/data
+/lightning_logs
+/__pycache__
