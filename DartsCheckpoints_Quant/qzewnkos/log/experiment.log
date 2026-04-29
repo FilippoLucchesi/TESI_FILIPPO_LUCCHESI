@@ -1,0 +1,16 @@
+[2026-04-29 17:52:34] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-04-29 17:52:34] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-04-29 17:52:34] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-04-29 17:52:34] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-04-29 17:52:34] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-04-29 17:52:34] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-04-29 17:52:34] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-04-29 17:52:34] WARNING (nni.nas.oneshot.pytorch.strategy) Checkpoint callback does not have last_model_path or best_model_path attribute. Either the strategy has not started, or it did not save any checkpoint: <pytorch_lightning.callbacks.model_checkpoint.ModelCheckpoint object at 0x7f19333d9250>
+[2026-04-29 17:52:34] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-04-29 17:52:34] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-04-29 17:52:34] INFO (nni.nas.experiment.experiment) Checkpoint saved to /home/filippo/TESI_FILIPPO_LUCCHESI/DartsCheckpoints_Quant/qzewnkos/checkpoint.
+[2026-04-29 17:52:34] INFO (nni.nas.experiment.experiment) Experiment initialized successfully. Starting exploration strategy...
+[2026-04-29 17:52:34] WARNING (nni.nas.evaluator.pytorch.lightning) Validation dataloaders are missing. Safe to ignore this warning when using one-shot strategy.
+[2026-04-29 21:10:26] INFO (nni.nas.experiment.experiment) Waiting for models submitted to engine to finish...
+[2026-04-29 21:10:26] INFO (nni.nas.experiment.experiment) Experiment is completed.
+[2026-04-29 21:10:26] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
