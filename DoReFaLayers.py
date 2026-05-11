@@ -5,7 +5,6 @@ import torch.nn.functional as F
 from nni.mutable import Categorical
 from nni.nas.nn.pytorch import ModelSpace, MutableConv2d, MutableLinear
 
-
 def _quantize_ste(x: torch.Tensor, k: int) -> torch.Tensor:
     """Quantize tensor x to k bits using a straight-through estimator (STE).
 
@@ -91,8 +90,9 @@ class FrozenDoReFaConv2d(nn.Conv2d):
         )
         self.num_bits = int(num_bits)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        w_q = dorefa_weight(self.weight, self.num_bits)
+    def forward(self, x: torch.Tensor, num_bits = None) -> torch.Tensor:
+        bits = self.num_bits if num_bits is None else num_bits
+        w_q = dorefa_weight(self.weight, bits)
         #x_q = dorefa_activation(x, self.num_bits)
         return self._conv_forward(x, w_q, self.bias)
 
@@ -116,8 +116,9 @@ class FrozenDoReFaLinear(nn.Linear):
         )
         self.num_bits = int(num_bits)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        w_q = dorefa_weight(self.weight, self.num_bits)
+    def forward(self, x: torch.Tensor, num_bits: int = None) -> torch.Tensor:
+        bits = self.num_bits if num_bits is None else num_bits
+        w_q = dorefa_weight(self.weight, bits)
         #x_q = dorefa_activation(x, self.num_bits)
         return F.linear(x, w_q, self.bias)
 
@@ -246,38 +247,101 @@ class MutableDoReFaLinear(MutableLinear):
 
 # fully connected net, MNIST, see if it converges (alpha polarizes?), 8/16 bit quantization
 
-class DoReFaToyNet(ModelSpace):
-    """Minimal model space using the custom quantized mutable convolution."""
 
-    def __init__(self, num_bits: int = 4) -> None:
+class DepthwiseSeparableBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, num_bits=6):
         super().__init__()
 
-        # Structural mutables for the custom conv.
-        # CATEGORICAL: explicit mutable object API, integrates better with freeze() and simplify()
-        conv_kernel_size = Categorical([3, 5], label='conv_kernel_size')
-        conv_stride = Categorical([1, 2], label='conv_stride')
-
-        # Custom quantized mutable conv: structural mutables + fixed bitwidth.
-        self.quant_conv = MutableDoReFaConv2d(
-            1,
-            8,
-            kernel_size=conv_kernel_size,
-            stride=conv_stride,
-            padding=2,
-            num_bits=num_bits,
+        self.depthwise = FrozenDoReFaConv2d(
+            in_channels,
+            in_channels,
+            kernel_size=3,
+            padding=1,
+            groups=in_channels,   # key part
+            bias=False,
+            num_bits=num_bits
         )
 
-        # Simple classification head.
-        self.head = nn.Sequential(
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d((1, 1)),
-            nn.Flatten(),
-            MutableDoReFaLinear(8, 10, num_bits=num_bits),
+        self.pointwise = FrozenDoReFaConv2d(
+            in_channels,
+            out_channels,
+            kernel_size=1,
+            bias=False,
+            num_bits=num_bits
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.quant_conv(x)
-        return self.head(x)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=False)
+
+    def forward(self, x, w_quant_bits=None):
+        if w_quant_bits is not None:
+            x = self.depthwise(x, w_quant_bits)
+            x = self.pointwise(x, w_quant_bits)
+        else:
+            x = self.depthwise(x)
+            x = self.pointwise(x)
+
+        x = self.bn(x)
+        x = self.relu(x)
+        return x
+    
+class BottleneckBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, bottleneck_ratio=4, num_bits=6):
+        super().__init__()
+
+        hidden = max(out_channels // bottleneck_ratio, 4)
+
+        self.conv1 = FrozenDoReFaConv2d(
+            in_channels,
+            hidden,
+            kernel_size=1,
+            bias=False,
+            num_bits=num_bits
+        )
+
+        self.conv2 = FrozenDoReFaConv2d(
+            hidden,
+            hidden,
+            kernel_size=3,
+            padding=1,
+            bias=False,
+            num_bits=num_bits
+        )
+
+        self.conv3 = FrozenDoReFaConv2d(
+            hidden,
+            out_channels,
+            kernel_size=1,
+            bias=False,
+            num_bits=num_bits
+        )
+
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=False)
+
+    def forward(self, x, w_quant_bits=None):
+
+        if w_quant_bits is not None:
+            x = self.conv1(x, w_quant_bits)
+            x = self.relu(x)
+
+            x = self.conv2(x, w_quant_bits)
+            x = self.relu(x)
+
+            x = self.conv3(x, w_quant_bits)
+        else:
+            x = self.conv1(x)
+            x = self.relu(x)
+
+            x = self.conv2(x)
+            x = self.relu(x)
+
+            x = self.conv3(x)
+
+        x = self.bn(x)
+        x = self.relu(x)
+
+        return x
 
 '''
 
@@ -364,4 +428,37 @@ def _quantize_ste(x: torch.Tensor, k: int) -> torch.Tensor:
         Number of quantization bits.
     """
     return _DoReFaQuantizeFn.apply(x, int(k))
+
+    class DoReFaToyNet(ModelSpace):
+    """Minimal model space using the custom quantized mutable convolution."""
+
+    def __init__(self, num_bits: int = 4) -> None:
+        super().__init__()
+
+        # Structural mutables for the custom conv.
+        # CATEGORICAL: explicit mutable object API, integrates better with freeze() and simplify()
+        conv_kernel_size = Categorical([3, 5], label='conv_kernel_size')
+        conv_stride = Categorical([1, 2], label='conv_stride')
+
+        # Custom quantized mutable conv: structural mutables + fixed bitwidth.
+        self.quant_conv = MutableDoReFaConv2d(
+            1,
+            8,
+            kernel_size=conv_kernel_size,
+            stride=conv_stride,
+            padding=2,
+            num_bits=num_bits,
+        )
+
+        # Simple classification head.
+        self.head = nn.Sequential(
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+            MutableDoReFaLinear(8, 10, num_bits=num_bits),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.quant_conv(x)
+        return self.head(x)
 '''

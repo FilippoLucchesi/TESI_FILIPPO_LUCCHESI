@@ -1,0 +1,18 @@
+{
+  "layer_1": 1,
+  "layer1_out_channels": 32,
+  "layer_2": 2,
+  "layer2_out_channels": 16,
+  "layer_3": 0,
+  "layer3_out_channels": 16,
+  "layer_4": 0,
+  "layer4_out_channels": 64,
+  "layer_5": 1,
+  "layer5_out_channels": 32,
+  "layer_6": 1,
+  "layer6_out_channels": 32,
+  "layer_7": 2,
+  "feature1": 32,
+  "feature2": 32,
+  "feature3": 32
+}
