@@ -5,67 +5,27 @@ import torch.nn.functional as F
 from nni.mutable import Categorical
 from nni.nas.nn.pytorch import ModelSpace, MutableConv2d, MutableLinear
 
-class LSQWeightQuantizer(nn.Module):
+def dorefa_weight(weight: torch.Tensor, k: int) -> torch.Tensor:
+    levels = 2**k - 1
 
-    def __init__(self, k=6, per_channel=True):
-        super().__init__()
+    # Conv2D case: [out_c, in_c, kH, kW]
+    if weight.dim() == 4:
+        scale = weight.detach().abs().amax(dim=(1,2,3), keepdim=True)
 
-        self.k = k
-        self.per_channel = per_channel
+    # Linear case: [out_f, in_f]
+    elif weight.dim() == 2:
+        scale = weight.detach().abs().amax(dim=1, keepdim=True)
 
-        self.initialized = False
+    else:
+        scale = weight.detach().abs().amax()
 
-    def init_step_size(self, weight):
+    w = weight / (scale + 1e-8)
+    w = torch.clamp(w, -1, 1)
 
-        if self.per_channel:
+    w_q = torch.round((w + 1)/2 * levels)
+    w_q = 2 * w_q / levels - 1
 
-            if weight.dim() == 4:
-                # Conv2D
-                mean = weight.abs().mean(dim=(1,2,3), keepdim=True)
-
-            elif weight.dim() == 2:
-                # Linear
-                mean = weight.abs().mean(dim=1, keepdim=True)
-
-            else:
-                mean = weight.abs().mean()
-
-        else:
-            mean = weight.abs().mean()
-
-        Qp = (2 ** (self.k - 1)) - 1
-
-        init = 2 * mean / (Qp ** 0.5)
-
-        self.step_size = nn.Parameter(init)
-
-        self.initialized = True
-
-    def forward(self, weight):
-
-        if not self.initialized:
-            self.init_step_size(weight)
-
-        s = torch.clamp(self.step_size, min=1e-8)
-
-        Qn = -(2 ** (self.k - 1))
-        Qp = (2 ** (self.k - 1)) - 1
-
-        # LSQ gradient scaling
-        grad_scale = 1.0 / ((Qp * weight.numel()) ** 0.5)
-
-        s_scale = (s - s.detach()) * grad_scale + s.detach()
-
-        w = weight / s_scale
-
-        w = torch.clamp(w, Qn, Qp)
-
-        w_q = torch.round(w)
-
-        # STE
-        w_q = w + (w_q - w).detach()
-
-        return w_q * s_scale
+    return scale * (w + (w_q - w).detach())
 
 def _quantize_ste(x: torch.Tensor, k: int) -> torch.Tensor:
     """Quantize tensor x to k bits using a straight-through estimator (STE).
@@ -151,11 +111,10 @@ class FrozenDoReFaConv2d(nn.Conv2d):
             dtype=dtype,
         )
         self.num_bits = int(num_bits)
-        self.weight_quantizer = LSQWeightQuantizer(k=num_bits, per_channel=True)
 
     def forward(self, x: torch.Tensor, num_bits = None) -> torch.Tensor:
         bits = self.num_bits if num_bits is None else num_bits
-        w_q = self.weight_quantizer(self.weight)
+        w_q = dorefa_weight(self.weight, bits)
         #x_q = dorefa_activation(x, self.num_bits)
         return self._conv_forward(x, w_q, self.bias)
 
@@ -178,11 +137,10 @@ class FrozenDoReFaLinear(nn.Linear):
             dtype=dtype,
         )
         self.num_bits = int(num_bits)
-        self.weight_quantizer = LSQWeightQuantizer(k=num_bits, per_channel=False)
 
     def forward(self, x: torch.Tensor, num_bits: int = None) -> torch.Tensor:
         bits = self.num_bits if num_bits is None else num_bits
-        w_q = self.weight_quantizer(self.weight)
+        w_q = dorefa_weight(self.weight, bits)
         #x_q = dorefa_activation(x, self.num_bits)
         return F.linear(x, w_q, self.bias)
 
