@@ -154,7 +154,8 @@ class FrozenDoReFaConv2d(nn.Conv2d):
         self.weight_quantizer = LSQWeightQuantizer(k=num_bits, per_channel=True)
 
     def forward(self, x: torch.Tensor, num_bits = None) -> torch.Tensor:
-        bits = self.num_bits if num_bits is None else num_bits
+        if num_bits is None:
+            return self._conv_forward(x, self.weight, self.bias)
         w_q = self.weight_quantizer(self.weight)
         #x_q = dorefa_activation(x, self.num_bits)
         return self._conv_forward(x, w_q, self.bias)
@@ -181,7 +182,8 @@ class FrozenDoReFaLinear(nn.Linear):
         self.weight_quantizer = LSQWeightQuantizer(k=num_bits, per_channel=False)
 
     def forward(self, x: torch.Tensor, num_bits: int = None) -> torch.Tensor:
-        bits = self.num_bits if num_bits is None else num_bits
+        if num_bits is None:
+            return F.linear(x, self.weight, self.bias)
         w_q = self.weight_quantizer(self.weight)
         #x_q = dorefa_activation(x, self.num_bits)
         return F.linear(x, w_q, self.bias)
