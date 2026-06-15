@@ -17,14 +17,16 @@ class LSQWeightQuantizer(nn.Module):
 
     def init_step_size(self, weight):
 
+        # Initialize step size based on mean absolute value of weights, following LSQ paper.
+        # if per_channel, compute mean over appropriate dimensions for conv/linear layers, otherwise global mean.
         if self.per_channel:
 
             if weight.dim() == 4:
-                # Conv2D
+                # Conv2D, one mean per output channel
                 mean = weight.abs().mean(dim=(1,2,3), keepdim=True)
 
             elif weight.dim() == 2:
-                # Linear
+                # Linear, one mean per output feature
                 mean = weight.abs().mean(dim=1, keepdim=True)
 
             else:
