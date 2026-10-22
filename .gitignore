@@ -5,3 +5,7 @@
 /data
 /lightning_logs
 /__pycache__
+/backup_search_history
+/alpha_histories
+/alpha_polarization
+/best_arch_darts
