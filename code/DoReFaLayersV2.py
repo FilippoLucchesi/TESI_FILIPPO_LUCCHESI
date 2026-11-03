@@ -23,6 +23,7 @@ def _quantize_ste(x: torch.Tensor, k: int) -> torch.Tensor:
         return torch.zeros_like(x)
 
     # Forward quantization (discrete values).
+    x = torch.clamp(x, 0.0, 1.0)
     x_q = torch.round(x * levels) / levels
     # STE/quantization trick: forward uses x_q, backward gradient flows as if identity on x.
     return x + (x_q - x).detach()
@@ -60,6 +61,16 @@ def dorefa_activation(x: torch.Tensor, k: int) -> torch.Tensor:
     return _quantize_ste(torch.clamp(x, 0.0, 1.0), k)
 
 
+def dorefa_signed_activation(x: torch.Tensor, k: int) -> torch.Tensor:
+    """Zero-preserving symmetric DoReFa-style quantization for signed tensors."""
+    positive_levels = (2 ** (int(k) - 1)) - 1
+    if positive_levels <= 0:
+        return torch.zeros_like(x)
+    bounded = torch.tanh(x)
+    quantized = torch.round(bounded * positive_levels) / positive_levels
+    return bounded + (quantized - bounded).detach()
+
+
 class FrozenDoReFaConv2d(nn.Conv2d):
     def __init__(
         self,
@@ -91,10 +102,9 @@ class FrozenDoReFaConv2d(nn.Conv2d):
         )
         self.num_bits = int(num_bits)
 
-    def forward(self, x: torch.Tensor, num_bits = None) -> torch.Tensor:
-        if num_bits is None:
-            return self._conv_forward(x, self.weight, self.bias)
-        w_q = dorefa_weight(self.weight, num_bits)
+    def forward(self, x: torch.Tensor, num_bits=None) -> torch.Tensor:
+        bits = self.num_bits if num_bits is None else int(num_bits)
+        w_q = dorefa_weight(self.weight, bits)
         #x_q = dorefa_activation(x, self.num_bits)
         return self._conv_forward(x, w_q, self.bias)
 
@@ -118,10 +128,9 @@ class FrozenDoReFaLinear(nn.Linear):
         )
         self.num_bits = int(num_bits)
 
-    def forward(self, x: torch.Tensor, num_bits: int = None) -> torch.Tensor:
-        if num_bits is None:
-            return F.linear(x, self.weight, self.bias)
-        w_q = dorefa_weight(self.weight, num_bits)
+    def forward(self, x: torch.Tensor, num_bits=None) -> torch.Tensor:
+        bits = self.num_bits if num_bits is None else int(num_bits)
+        w_q = dorefa_weight(self.weight, bits)
         #x_q = dorefa_activation(x, self.num_bits)
         return F.linear(x, w_q, self.bias)
 
@@ -166,14 +175,15 @@ class MutableDoReFaConv2d(MutableConv2d):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         w_q = dorefa_weight(self.weight, self.num_bits)
-        print("check Conv2d")
         # x_q = dorefa_activation(x, self.num_bits)
         return self._conv_forward(x, w_q, self.bias)
 
     def freeze(self, sample: dict[str, int]) -> nn.Module:
         self.validate(sample)
         args, kwargs = self.freeze_init_arguments(sample, *self.trace_args, **self.trace_kwargs)
-        frozen_layer = FrozenDoReFaConv2d(*args, **kwargs)
+        frozen_layer = FrozenDoReFaConv2d(
+            *args, num_bits=self.num_bits, **kwargs
+        )
         frozen_layer.load_state_dict(self.state_dict(), strict=False)
         return frozen_layer
 
@@ -184,7 +194,9 @@ class DoReFaLinear(nn.Module):
         self.num_bits = num_bits
 
     def forward(self, x):
-        return self.base(x)
+        return F.linear(
+            x, dorefa_weight(self.base.weight, self.num_bits), self.base.bias
+        )
     
 class DoReFaConv2d(nn.Module):
     def __init__(self, base_conv, num_bits):
@@ -193,7 +205,8 @@ class DoReFaConv2d(nn.Module):
         self.num_bits = num_bits
 
     def forward(self, x):
-        return self.base(x)
+        weight = dorefa_weight(self.base.weight, self.num_bits)
+        return self.base._conv_forward(x, weight, self.base.bias)
     '''ALTERNATIVE:
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Full precision path
@@ -238,13 +251,14 @@ class MutableDoReFaLinear(MutableLinear):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         w_q = dorefa_weight(self.weight, self.num_bits)
         # x_q = dorefa_activation(x, self.num_bits)
-        print("check Linear")
         return F.linear(x, w_q, self.bias)
 
     def freeze(self, sample: dict[str, int]) -> nn.Module:
         self.validate(sample)
         args, kwargs = self.freeze_init_arguments(sample, *self.trace_args, **self.trace_kwargs)
-        frozen_layer = FrozenDoReFaLinear(*args, **kwargs)
+        frozen_layer = FrozenDoReFaLinear(
+            *args, num_bits=self.num_bits, **kwargs
+        )
         frozen_layer.load_state_dict(self.state_dict(), strict=False)
         return frozen_layer
 
