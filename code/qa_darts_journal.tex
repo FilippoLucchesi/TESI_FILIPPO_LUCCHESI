@@ -179,31 +179,13 @@ Separately quantizing the branches before addition is deliberate. Quantizing onl
 
 \begin{figure*}[!t]
 \centering
-\setlength{\fboxsep}{7pt}
-\fbox{\begin{minipage}{0.94\textwidth}
-\centering
-\textbf{Input $32\times32$}
-$\rightarrow$ quantized $3\times3$ stem
-$\rightarrow$ L1
-$\rightarrow$ L2
-$\rightarrow$ D1
-$\rightarrow$ L3
-$\rightarrow$ L4
-$\rightarrow$ D2
-$\rightarrow$ L5
-$\rightarrow$ L6
-$\rightarrow$ L7
-$\rightarrow$ D3
-$\rightarrow$ global average pool
-$\rightarrow$ quantized classifier.\\[4pt]
-L1--L2 select dense or depthwise-separable convolution; L3--L4 additionally select a zero main branch or a dilated depthwise-separable convolution; L5--L7 replace those middle-stage alternatives with eight-head spatial self-attention. D1--D3 independently select average pooling or a learned stride-two pointwise projection. Every L-stage includes the residual path in (\ref{eq:residual}).
-\end{minipage}}
-\caption{Topology of the current QA-DARTS supernet. Downsampling occurs after layers 2, 4, and 7. Attention is restricted to the $8\times8$ portion of the network.}
+\includegraphics[width=\textwidth]{figures/qa_darts_supernet.pdf}
+\caption{Topology of the current QA-DARTS supernet. Seven components are shown per row; flow proceeds across the upper row and wraps from L4 to D2 on the lower row. Block face size and stack depth encode spatial resolution and channel count, respectively, using logarithmic scaling; labels report the exact output shapes. Colors distinguish fixed components, searchable residual stages, attention-enabled stages, and downsampling decisions. L1--L7 are always-residual stages, and attention is restricted to the $8\times8$ stages.}
 \label{fig:supernet}
 \end{figure*}
 
 \subsection{Current Search Space}
-Table~\ref{tab:space} specifies the search space used by the current code. The stem, global average pooling, and classifier are fixed. Seven residual stages and three downsampling locations are searchable. The number of discrete architectures is
+Table~\ref{tab:space} lists only the searchable decisions used by the current code. The quantized stem, global average pooling, and quantized classifier are fixed components shown separately in Fig.~\ref{fig:supernet}. Seven residual stages and three downsampling locations are searchable. The number of discrete architectures is
 \begin{equation}
 2\cdot2\cdot4\cdot4\cdot3\cdot3\cdot3\cdot2^3=13{,}824.
 \label{eq:spacesize}
@@ -211,31 +193,37 @@ Table~\ref{tab:space} specifies the search space used by the current code. The s
 This count excludes learned weights, LSQ parameters, and residual scales; it counts only exported structural choices.
 
 \begin{table*}[!t]
-\caption{Updated Search Space Used by the Current Implementation}
+\caption{Searchable Decisions in the Current Search Space}
 \label{tab:space}
 \centering
 \renewcommand{\arraystretch}{1.12}
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{|>{\centering\arraybackslash}p{0.07\textwidth}|>{\centering\arraybackslash}p{0.16\textwidth}|>{\centering\arraybackslash}p{0.14\textwidth}|p{0.38\textwidth}|>{\centering\arraybackslash}p{0.06\textwidth}|}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}>{\centering\arraybackslash}p{0.07\textwidth}>{\centering\arraybackslash}p{0.17\textwidth}>{\centering\arraybackslash}p{0.14\textwidth}>{\centering\arraybackslash}p{0.25\textwidth}>{\centering\arraybackslash}p{0.07\textwidth}@{}}
 \hline
-Decision & Input $\rightarrow$ output channels & Resolution before decision & Candidate operations & Choices\\
+\textbf{Search decision} & \textbf{Channels} & \textbf{Input size} & \textbf{Candidate operations} & \textbf{Choices}\\
 \hline
-Stem & $3\rightarrow32$ & $32\times32$ & Fixed quantized $3\times3$ convolution, batch normalization, ReLU & --\\
-L1 & $32\rightarrow32$ & $32\times32$ & Standard $3\times3$ convolution; depthwise $3\times3$ + pointwise $1\times1$ & 2\\
-L2 & $32\rightarrow64$ & $32\times32$ & Standard $3\times3$ convolution; depthwise $3\times3$ + pointwise $1\times1$ & 2\\
-D1 & $64\rightarrow64$ & $32\times32$ & $2\times2$ average pooling; stride-two $1\times1$ convolution + batch normalization & 2\\
-L3 & $64\rightarrow64$ & $16\times16$ & Standard; depthwise-separable; zero main branch; dilation-two depthwise-separable & 4\\
-L4 & $64\rightarrow128$ & $16\times16$ & Standard; depthwise-separable; zero main branch; dilation-two depthwise-separable & 4\\
-D2 & $128\rightarrow128$ & $16\times16$ & $2\times2$ average pooling; stride-two $1\times1$ convolution + batch normalization & 2\\
-L5 & $128\rightarrow128$ & $8\times8$ & Standard; depthwise-separable; eight-head spatial self-attention & 3\\
-L6 & $128\rightarrow256$ & $8\times8$ & Standard; depthwise-separable; eight-head spatial self-attention & 3\\
-L7 & $256\rightarrow200$ & $8\times8$ & Standard; depthwise-separable; eight-head spatial self-attention & 3\\
-D3 & $200\rightarrow200$ & $8\times8$ & $2\times2$ average pooling; stride-two $1\times1$ convolution + batch normalization & 2\\
-Head & $200\rightarrow C$ & $4\times4$ & Fixed global average pooling and quantized linear classifier & --\\
-\hline
-\multicolumn{5}{|p{0.90\textwidth}|}{\footnotesize For the widened two-bit CIFAR-10 model, channels from stem through L7 are $64,64,128,128,256,256,512,200$; candidates and resolutions are unchanged.}\\
+L1 & $32\rightarrow32$ & $32\times32$ & C3, DS3 & 2\\
+L2 & $32\rightarrow64$ & $32\times32$ & C3, DS3 & 2\\
+D1 & $64\rightarrow64$ & $32\times32$ & AP2, PC1 & 2\\
+L3 & $64\rightarrow64$ & $16\times16$ & C3, DS3, Z, DDS3 & 4\\
+L4 & $64\rightarrow128$ & $16\times16$ & C3, DS3, Z, DDS3 & 4\\
+D2 & $128\rightarrow128$ & $16\times16$ & AP2, PC1 & 2\\
+L5 & $128\rightarrow128$ & $8\times8$ & C3, DS3, A8 & 3\\
+L6 & $128\rightarrow256$ & $8\times8$ & C3, DS3, A8 & 3\\
+L7 & $256\rightarrow200$ & $8\times8$ & C3, DS3, A8 & 3\\
+D3 & $200\rightarrow200$ & $8\times8$ & AP2, PC1 & 2\\
 \hline
 \end{tabular}
+\vspace{3pt}
+
+\begin{minipage}{0.78\textwidth}
+\raggedright
+\footnotesize
+\textit{Operation legend:} C3, standard $3\times3$ convolution; DS3, depthwise $3\times3$ plus pointwise $1\times1$ convolution; DDS3, dilation-two DS3; Z, zero main branch; A8, eight-head spatial self-attention; AP2, $2\times2$ average pooling; PC1, stride-two $1\times1$ convolution with batch normalization.
+
+\smallskip
+\textit{Two-bit width note:} For the widened CIFAR-10 model, channels from the stem through L7 are $64,64,128,128,256,256,512,200$; candidates and resolutions are unchanged.
+\end{minipage}
 \end{table*}
 
 The zero main branch in L3 or L4 does not remove the entire stage. It yields a residual-only block because the outer shortcut remains active, including a learned projection when channel dimensions change. Unlike a skip candidate placed directly in a DARTS mixture, the zero branch is evaluated within the same branch quantization and residual-fusion mechanism as every other option. Restricting it to two middle stages prevents the network from collapsing into a sequence of parameter-free shortcuts.
