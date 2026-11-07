@@ -23,8 +23,10 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 
-# IEEEtran's double-column text width is approximately 7.16 in on US Letter.
-WIDTH_IN = 7.16
+# Use a slightly wider source canvas than IEEEtran's 7.16 in double-column
+# width.  LaTeX scales it to \textwidth, preserving more air between stages;
+# the enlarged source fonts below remain larger after that small reduction.
+WIDTH_IN = 8
 HEIGHT_IN = 3.35
 DPI = 300
 PT_PER_IN = 72.0
@@ -87,20 +89,27 @@ def _darken(hex_colour: str, factor: float = 0.78) -> str:
 
 def _stage_height(resolution: int, name: str) -> float:
     if name == "Classifier":
-        return 22.0
-    return {32: 54.0, 16: 43.0, 8: 34.0, 4: 26.0, 1: 18.0}[resolution]
+        return 28.0
+    # Keep H and W visually proportional to the reported spatial resolution.
+    # The small offset preserves the legibility of the 1x1 and 4x4 stages.
+    return 7.0 + 1.25 * resolution
 
 
 def _stage_width(resolution: int, name: str) -> float:
     if name == "Classifier":
         return 9.0
-    return {32: 30.0, 16: 24.0, 8: 18.0, 4: 13.0, 1: 9.0}[resolution]
+    # H = W in the current network, so every spatial front face is square.
+    return _stage_height(resolution, name)
 
 
 def _stage_depth(channels: int, name: str) -> float:
     if name == "Classifier":
-        return 4.0
-    return 2.5 + 1.5 * math.log2(max(channels, 2))
+        return 0.0
+    # A linear channel scale cannot fit 256 channels in a seven-stage row.
+    # Square-root scaling still makes every channel doubling clearly visible:
+    # 32, 64, 128, and 256 channels have projected depths 17, 24, 34,
+    # and 48 pt, respectively.
+    return 3.0 * math.sqrt(max(channels, 1))
 
 
 def _font_path(bold: bool) -> str | None:
@@ -211,13 +220,33 @@ def _add_block(
     )
 
 
+def _add_classifier(
+    scene: Scene,
+    centre_x: float,
+    bottom: float,
+    width: float,
+    height: float,
+    colour: str,
+) -> None:
+    """Draw the non-spatial classifier as a flat schematic bar."""
+    left = centre_x - width / 2.0
+    right = centre_x + width / 2.0
+    scene.polygon(
+        ((left, bottom), (right, bottom), (right, bottom + height), (left, bottom + height)),
+        colour,
+    )
+    scene.line(((centre_x, bottom + 2.0), (centre_x, bottom + height - 2.0)), _darken(colour), 0.45)
+
+
 def build_scene() -> Scene:
     scene = Scene()
-    stage_name_font = 10.5
-    shape_font = 8.7
+    stage_name_font = 14.0
+    shape_font = 12.0
     row1 = STAGES[:7]
     row2 = STAGES[7:]
-    row1_centres = [45.0 + i * (425.0 / (len(row1) - 1)) for i in range(len(row1))]
+    side_margin = 40.0
+    usable_span = WIDTH_PT - 2.0 * side_margin
+    row1_centres = [side_margin + i * (usable_span / (len(row1) - 1)) for i in range(len(row1))]
     row2_centres = list(row1_centres)
     row1_bottom = 145.0
     row2_bottom = 48.0
@@ -237,7 +266,7 @@ def build_scene() -> Scene:
         (ATTENTION, "attention-enabled L-stage"),
         (DOWNSAMPLE, "searchable downsampling"),
     )
-    legend_font = 7.8
+    legend_font = 12
     swatch = 7.0
     swatch_gap = 5.0
     item_gap = 18.0
@@ -251,14 +280,14 @@ def build_scene() -> Scene:
         scene.text(x + swatch + swatch_gap + label_width / 2.0,
                    232, label, legend_font, colour=MUTED)
         x += swatch + swatch_gap + label_width + item_gap
-    scene.text(
-        WIDTH_PT / 2.0,
-        218.0,
-        "Face size encodes spatial resolution; stack depth encodes channel count (log-scaled)",
-        7.8,
-        bold=True,
-        colour=MUTED,
-    )
+    # scene.text(
+    #     WIDTH_PT / 2.0,
+    #     218.0,
+    #     "Square face scales linearly with HxW; extrusion scales with sqrt(C) (classifier schematic)",
+    #     8.8,
+    #     bold=True,
+    #     colour=MUTED,
+    # )
 
     # Draw the upper row and its connectors.
     for i in range(len(row1) - 1):
@@ -307,7 +336,10 @@ def build_scene() -> Scene:
         scene.text(centre, 116.0, stage.shape, shape_font, colour=MUTED)
 
     for centre, stage, (width, height, depth) in zip(row2_centres, row2, geometry[split:]):
-        _add_block(scene, centre, row2_bottom, width, height, depth, stage.colour)
+        if stage.name == "Classifier":
+            _add_classifier(scene, centre, row2_bottom, width, height, stage.colour)
+        else:
+            _add_block(scene, centre, row2_bottom, width, height, depth, stage.colour)
         scene.text(centre, 34.0, stage.name, stage_name_font, bold=True)
         scene.text(centre, 20.0, stage.shape, shape_font, colour=MUTED)
     return scene

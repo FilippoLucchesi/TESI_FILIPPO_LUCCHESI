@@ -27,7 +27,8 @@
 \maketitle
 
 \begin{abstract}
-Photonic neural networks offer high-throughput and low-latency execution of linear algebra, but practical accelerators impose constraints that are rarely considered during neural architecture design. In particular, the effective numerical resolution is commonly limited to approximately six bits, optical inputs are non-negative, convolutional kernels and neuron fan-in are bounded, and the cost of unnecessary transformations is amplified by conversion and calibration overheads. This article presents QA-DARTS, a quantization-aware differentiable architecture search framework that exposes candidate networks to low-precision weights and activations during the search itself. The framework is implemented on top of Neural Network Intelligence and extends its differentiable mixed operations with learned-step-size quantization for convolution, linear, and self-attention layers. The current search space contains seven always-residual stages and jointly selects dense convolution, depthwise-separable convolution, dilated depthwise-separable convolution, residual-only behavior, spatial self-attention, and learnable or parameter-free downsampling. A learned bounded residual scale and branch-specific signed or unsigned activation quantizers make the relaxed supernet consistent with the subsequently discretized model. The framework also includes precision-specific curricula for the difficult two-bit regime and a clean retraining-from-scratch protocol. The experimental design covers CIFAR-10 and a classification adaptation of the German Traffic Sign Detection Benchmark at six-, four-, and two-bit precision. Results are intentionally omitted while the updated experimental campaign is being completed.
+Photonic neural networks promise high-throughput, low-latency inference, but their limited numerical precision and physical constraints are rarely considered during neural architecture search. This article presents QA-DARTS, which makes quantization part of differentiable architecture search rather than a post-search operation. Learned-step-size quantization is applied to weights and activations while architecture parameters are optimized, so candidate operations are compared under the precision at which the selected network will operate. The photonic-compatible search space combines residual convolutional blocks, efficient and dilated operators, spatial self-attention, and alternative downsampling paths. Precision-specific training schedules support six-, four-, and two-bit search, followed by deterministic reconstruction and retraining from scratch. The evaluation covers CIFAR-10 and a classification adaptation of the German Traffic Sign Detection Benchmark.
+% TODO: Add one concise sentence reporting the principal quantitative result.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -39,9 +40,7 @@ Differentiable architecture search, hardware-aware neural architecture search, l
 
 The same physical mechanisms that make PNNs attractive also impose non-idealities that are not represented by an ordinary floating-point neural network. Optical sources, modulators, detectors, and data converters introduce noise and restrict numerical resolution. Inputs encoded as optical intensity are non-negative. Optical fan-in is limited by power splitting, crosstalk, and component count, while large spatial kernels require additional hardware and optical routing. A network that performs well in an unconstrained software environment can therefore be expensive, inaccurate, or impossible to map to a photonic platform. Photonic-aware neural networks address part of this gap by incorporating device-level constraints into architecture and training choices \cite{paolini2022photonic}, but those choices are commonly made by hand.
 
-Neural architecture search (NAS) offers a systematic alternative. In particular, differentiable architecture search (DARTS) replaces discrete architectural decisions with continuous mixtures and optimizes their mixing coefficients by gradient descent \cite{liu2019darts}. Its computational efficiency makes DARTS suitable for co-design problems in which many candidate networks must be evaluated. Nevertheless, a conventional DARTS search is normally conducted with full-precision weights and activations. Quantization is applied only after a candidate architecture has been selected. This ordering is problematic because quantization changes the relative quality of candidate operations: two blocks that are comparable in floating point can react very differently to clipping, rounding, and limited dynamic range.
-
-QA-DARTS integrates quantization-aware training (QAT) directly into the relaxed supernet. Every candidate operation is evaluated with the same target precision that will be used after discretization. Network weights remain latent full-precision variables for optimization, but quantized copies are used in the forward pass; activation tensors are quantized at explicit boundaries throughout the model. Consequently, the architecture parameters are optimized using validation loss measured under low-precision computation rather than under an idealized surrogate.
+Neural architecture search (NAS) offers a systematic alternative. In particular, differentiable architecture search (DARTS) replaces discrete architectural decisions with continuous mixtures and optimizes their mixing coefficients by gradient descent \cite{liu2019darts}. Its computational efficiency makes DARTS suitable for co-design problems in which many candidate networks must be evaluated. This work extends that formulation so that low-precision behavior is present during search; the motivation and distinction from post-search quantization are developed in Section~\ref{sec:role}.
 
 The current implementation extends the original formulation substantially. Its contributions are as follows.
 
@@ -53,7 +52,7 @@ The current implementation extends the original formulation substantially. Its c
 \item It separates search, discretization, retraining, and evaluation. The selected architecture is reconstructed as a deterministic model and trained from random initialization, preventing inherited supernet weights from confounding the final assessment.
 \end{itemize}
 
-The remainder of the article reviews the photonic constraints and differentiable-search formulation, describes the quantization operators and updated search space, and defines the experimental protocol. The Results section is deliberately left empty until the current experiments and plots are complete.
+The remainder reviews the background, motivates QA-DARTS before describing its NNI implementation, and defines the experimental protocol. Results are reserved for the current experiments and plots.
 
 \section{Background and Related Work}
 \subsection{Photonic Neural Computing}
@@ -61,7 +60,7 @@ PNNs implement neural computations using optical signals and integrated photonic
 
 First, numerical precision is limited. The effective number of bits is determined jointly by analog noise, device variability, thermal drift, optical loss, and data-converter resolution. This work considers six bits as the upper target and studies four- and two-bit operation as increasingly aggressive regimes. Second, optical intensity is non-negative, so activation paths are designed around non-negative tensors and ReLU-like nonlinearities. Signed quantities are still required for weights, normalized residual projections, and attention scores; these tensors receive explicit signed quantizers. Third, the fan-in of a photonic neuron cannot grow without bound. The classification head is therefore preceded by global average pooling and receives exactly 200 features. Fourth, experimentally practical spatial kernels are small. Every spatial convolution in the proposed backbone uses a $3\times3$ kernel or a $3\times3$ dilated kernel; pointwise projections use $1\times1$ kernels.
 
-Photonic awareness is not equivalent to quantization alone. A model can satisfy a bit-width constraint yet use an unsuitable fan-in, negative optical input, excessive channel expansion, or an operation whose conversion cost overwhelms its arithmetic benefit. For this reason, QA-DARTS encodes structural constraints directly in the search space and applies quantization throughout every candidate path.
+Photonic awareness is not equivalent to quantization alone. A model can satisfy a bit-width constraint yet use an unsuitable fan-in, negative optical input, excessive channel expansion, or an operation whose conversion cost overwhelms its arithmetic benefit. Hardware-aware search must therefore represent both numerical and structural constraints rather than treating bit width as a complete proxy for deployability.
 
 \subsection{Neural Architecture Search and DARTS}
 NAS methods automate decisions that would otherwise require extensive manual exploration \cite{elsken2019nas}. Early approaches trained many independent architectures, which made the search prohibitively expensive for all but the largest compute budgets. Weight-sharing one-shot methods reduce that cost by embedding many candidates in a common supernet \cite{bender2018oneshot,guo2020singlepath}. DARTS goes further by expressing each discrete choice as a differentiable mixture.
@@ -81,7 +80,7 @@ w^{\star}(\alpha)=\arg\min_w\mathcal{L}_{\mathrm{train}}(w,\alpha).
 \end{equation}
 In practice, the two parameter groups are updated alternately using mini-batches from the training and validation partitions. At the end of search, each mixture is discretized with $k^{\star}=\arg\max_k\alpha_k$.
 
-This relaxation introduces known biases. Parameter-free paths can learn faster than convolutional paths, mixed operations can exploit the simultaneous capacity of several candidates, and weakly polarized probabilities can make the final argmax unstable. QA-DARTS controls these effects structurally: a residual path is always present rather than competing as an ordinary candidate, zero operations are allowed only in two middle blocks, and architecture probabilities are recorded every epoch for later entropy and margin analysis.
+This relaxation introduces known biases. Parameter-free paths can learn faster than convolutional paths, mixed operations can exploit the simultaneous capacity of several candidates, and weakly polarized probabilities can make the final argmax unstable. Consequently, the relaxed supernet may perform well even when the final argmax decision is poorly separated from its alternatives. Entropy and probability margins are useful diagnostics of whether discretization represents a confident architectural choice.
 
 \subsection{Quantization-Aware Training}
 Quantization maps a continuous tensor to a finite set of representable values. A uniform signed quantizer with step size $s>0$, lower integer bound $Q_n$, and upper bound $Q_p$ can be written as
@@ -89,21 +88,61 @@ Quantization maps a continuous tensor to a finite set of representable values. A
 q(x;s)=s\,\mathrm{clip}\!\left(\mathrm{round}\!\left(\frac{x}{s}\right),Q_n,Q_p\right).
 \label{eq:quantizer}
 \end{equation}
-For a $b$-bit signed weight, QA-DARTS uses $Q_n=-2^{b-1}$ and $Q_p=2^{b-1}-1$. Non-negative activations use $Q_n=0$ and $Q_p=2^b-1$. Rounding has zero derivative almost everywhere, so the backward pass uses the straight-through estimator (STE), treating the derivative through the rounding step as the identity inside the clipping range \cite{bengio2013ste,yin2019ste}.
+For a $b$-bit signed tensor, the usual integer bounds are $Q_n=-2^{b-1}$ and $Q_p=2^{b-1}-1$; an unsigned tensor instead uses $Q_n=0$ and $Q_p=2^b-1$. Rounding has zero derivative almost everywhere, so quantization-aware training commonly uses the straight-through estimator (STE), treating the derivative through the rounding step as the identity inside the clipping range \cite{bengio2013ste,yin2019ste}.
 
-DoReFa-Net demonstrated effective low-bit training through fixed transformations of weights and activations \cite{zhou2018dorefa}. The current framework instead uses LSQ as its active quantizer. LSQ learns $s$ jointly with the network and scales its gradient to prevent the step-size update from dominating optimization \cite{esser2020lsq}. With $N$ tensor elements, the implementation uses a scale proportional to
+DoReFa-Net demonstrated effective low-bit training through fixed transformations of weights and activations \cite{zhou2018dorefa}. Learned Step Size Quantization (LSQ) instead learns $s$ jointly with the network and scales its gradient to prevent the step-size update from dominating optimization \cite{esser2020lsq}. With $N$ tensor elements, this scale is proportional to
 \begin{equation}
 g_s=\frac{1}{\sqrt{NQ_p}}.
 \label{eq:lsqgrad}
 \end{equation}
-Convolutional weight scales are initialized from the mean absolute value of each output channel, while linear and attention projection weights share one scale per tensor. Activation quantizers learn both a step size and an upper clipping parameter. This clipping parameter plays a role analogous to parameterized clipping in PACT \cite{choi2018pact}: it balances saturation error against the resolution lost when a fixed number of levels spans an unnecessarily wide interval.
+An activation quantizer may also learn an upper clipping parameter. This parameter plays a role analogous to parameterized clipping in PACT \cite{choi2018pact}: it balances saturation error against the resolution lost when a fixed number of levels spans an unnecessarily wide interval.
 
 \subsection{Efficient and Context-Aware Operators}
-The updated search space combines operators with complementary inductive biases. A standard convolution jointly learns spatial and channel mixing. A depthwise-separable block factorizes that computation into a channel-wise $3\times3$ convolution and a $1\times1$ pointwise projection, reducing parameter and multiply--accumulate counts as in MobileNet \cite{howard2017mobilenets}. A dilated depthwise block increases the receptive field without increasing the physical kernel from $3\times3$ \cite{yu2016dilated}. Its dilation of two gives the sampling footprint of a $5\times5$ kernel while retaining nine spatial coefficients per channel.
+Standard convolution jointly learns spatial and channel mixing. A depthwise-separable block factorizes that computation into a channel-wise convolution and a pointwise projection, reducing parameter and multiply--accumulate counts as in MobileNet \cite{howard2017mobilenets}. Dilated convolution increases the receptive field without enlarging the physical kernel \cite{yu2016dilated}. These operators offer different balances between capacity, fan-in, and implementation cost.
 
-Late stages additionally expose spatial multi-head self-attention \cite{vaswani2017attention}. The feature map is flattened to a token sequence, normalized, and processed by eight attention heads. Attention is offered only after the resolution has fallen to $8\times8$, limiting the quadratic score matrix to 64 tokens per head. All query, key, value, score, probability, context, and output paths are explicitly quantized, so attention is not an unquantized escape route within the supernet.
+Multi-head self-attention provides a complementary global, content-dependent interaction mechanism \cite{vaswani2017attention}. For a sequence of $N$ spatial tokens its score matrix scales quadratically with $N$, making attention more practical at low-resolution stages. Its normalization, signed scores, bounded probabilities, and multiple linear projections also create quantization behavior that differs substantially from convolution.
 
-\section{QA-DARTS Framework}
+\section{From DARTS to Quantization-Aware DARTS}
+\label{sec:role}
+\subsection{The Role of Quantization}
+Quantization reduces the precision used to represent and process weights and activations. Besides lowering memory and digital arithmetic costs, it is especially relevant to photonic accelerators because their effective resolution is bounded by analog noise, loss, device variation, and data conversion. It is therefore not merely a compression step applied after network design: at low precision it changes the numerical behavior of the operators from which an architecture is assembled.
+
+Conventional quantization-aware training (QAT) retains latent full-precision weights for gradient-based optimization but uses quantized copies in the forward pass. An input quantizer first maps the incoming activation to a finite codebook, and a weight quantizer does the same for the layer parameters before the operation is evaluated. The STE supplies approximate gradients through rounding, allowing the latent weights and quantizer parameters to adapt to clipping and quantization error. Figure~\ref{fig:conceptualbridge}(a) will summarize this single-layer mechanism.
+
+When QAT follows a conventional DARTS search, however, the two stages solve different problems. DARTS ranks mixed operations using full-precision tensors, selects one operation at every decision, and only then adapts the discrete network to low precision. The selected architecture is thus optimal only with respect to the full-precision search surrogate. Quantization may alter the ranking because candidate families differ in dynamic range, parameter distribution, accumulation depth, normalization, and sensitivity to clipping. Post-search QAT can adapt the selected weights, but it cannot revisit an architectural decision made without those effects.
+
+\begin{figure*}[!t]
+\centering
+% Replace each framed placeholder with the corresponding final vector artwork.
+\subfloat[Quantization-aware training of one operation.]{%
+\fbox{\parbox[c][0.92in][c]{0.43\textwidth}{\centering
+\footnotesize Placeholder for the QAT diagram:\\
+input quantizer $\rightarrow$ operation with quantized latent weights}}
+\label{fig:qatplaceholder}}
+\hfill
+\subfloat[Full-precision DARTS followed by QAT versus QA-DARTS.]{%
+\fbox{\parbox[c][0.92in][c]{0.43\textwidth}{\centering
+\footnotesize Placeholder for the comparison diagram:\\
+post-search quantization versus quantization during search}}
+\label{fig:qadartsplaceholder}}
+\caption{Conceptual bridge from QAT to QA-DARTS. The final diagrams will replace the framed placeholders while preserving the reserved layout area.}
+\label{fig:conceptualbridge}
+\end{figure*}
+
+\subsection{Quantization Inside the Differentiable Search}
+QA-DARTS removes this mismatch by placing QAT inside each candidate of the relaxed supernet. Let $o_k$ be a candidate with latent weights $W_k$, let $Q_{w,k}$ denote its weight quantizer, and let $Q_x$ and $Q_{a,k}$ denote activation quantizers at the relevant input and output boundaries. The mixed operation becomes
+\begin{equation}
+\bar{o}_{q}(x)=\sum_{k=1}^{K}p_k\,
+Q_{a,k}\!\left(o_k\!\left(Q_x(x);Q_{w,k}(W_k)\right)\right),
+\label{eq:quantmixed}
+\end{equation}
+where the probabilities $p_k$ are still obtained from the architecture logits as in (\ref{eq:mixedop}). The target bit width is a fixed condition of an experiment, not another candidate in the architecture space. Each operation retains its own latent weights and weight quantizer, while activation quantizers are shared only where candidates genuinely consume the same tensor and require the same numerical interpretation.
+
+The decisive change is the signal used to update the architecture logits. Because both the training update of $W_k$ and the validation update of $\alpha_k$ pass through the quantized supernet, the probabilities respond to accuracy under clipping, rounding, and restricted dynamic range. The search can therefore prefer an operation that is slightly weaker in floating point but more stable at the deployment precision. Figure~\ref{fig:conceptualbridge}(b) will contrast this joint process with the sequential DARTS-then-QAT pipeline.
+
+QA-DARTS does not claim that quantization alone captures an entire photonic platform. Its purpose is to make numerical precision part of architecture selection while the model space separately enforces structural constraints such as kernel size, fan-in, tensor non-negativity at optical interfaces, and feasible downsampling. After search, the maximum-probability choices are reconstructed as one deterministic network and retrained from random initialization under the same quantization policy. This separates the quality of the selected architecture from the inherited state of the shared supernet.
+
+\section{NNI Implementation of QA-DARTS}
 \subsection{System Overview}
 The implementation is built on the ModelSpace, LayerChoice, and DARTS components of Microsoft Neural Network Intelligence (NNI) \cite{nni}. NNI mutates ordinary mutable layers into mixed operations before one-shot training begins. QA-DARTS supplies custom mutation hooks for mutable convolution, linear, and multi-head-attention modules. Each hook constructs the corresponding quantized mixed operation, transfers the supernet weights, attaches the appropriate LSQ modules, and preserves the fixed target precision as metadata rather than exposing it as an architecture choice.
 
@@ -180,7 +219,7 @@ Separately quantizing the branches before addition is deliberate. Quantizing onl
 \begin{figure*}[!t]
 \centering
 \includegraphics[width=\textwidth]{figures/qa_darts_supernet.pdf}
-\caption{Topology of the current QA-DARTS supernet. Seven components are shown per row; flow proceeds across the upper row and wraps from L4 to D2 on the lower row. Block face size and stack depth encode spatial resolution and channel count, respectively, using logarithmic scaling; labels report the exact output shapes. Colors distinguish fixed components, searchable residual stages, attention-enabled stages, and downsampling decisions. L1--L7 are always-residual stages, and attention is restricted to the $8\times8$ stages.}
+\caption{Topology of the current QA-DARTS supernet. Seven components are shown per row; flow proceeds across the upper row and wraps from L4 to D2 on the lower row. For spatial tensors, the square front face represents $H\times W$ and is linearly scaled, whereas the backward extrusion represents the channel count $C$ and is square-root scaled to fit the full network. The final classifier is schematic. Labels report exact output shapes. Colors distinguish fixed components, searchable residual stages, attention-enabled stages, and downsampling decisions. L1--L7 are always-residual stages, and attention is restricted to the $8\times8$ stages.}
 \label{fig:supernet}
 \end{figure*}
 
