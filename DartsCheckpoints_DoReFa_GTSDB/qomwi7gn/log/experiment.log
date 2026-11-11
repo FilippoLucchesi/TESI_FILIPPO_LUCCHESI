@@ -1,0 +1,38 @@
+[2026-11-11 08:12:59] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 08:12:59] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 08:12:59] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 08:12:59] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 08:12:59] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 08:12:59] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 08:12:59] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 08:12:59] WARNING (nni.nas.oneshot.pytorch.strategy) Checkpoint callback does not have last_model_path or best_model_path attribute. Either the strategy has not started, or it did not save any checkpoint: <pytorch_lightning.callbacks.model_checkpoint.ModelCheckpoint object at 0x7f81efe1bad0>
+[2026-11-11 08:12:59] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 08:12:59] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 08:12:59] INFO (nni.nas.experiment.experiment) Checkpoint saved to /home/cc/TESI_FILIPPO_LUCCHESI/DartsCheckpoints_DoReFa_GTSDB/qomwi7gn/checkpoint.
+[2026-11-11 08:12:59] INFO (nni.nas.experiment.experiment) Experiment initialized successfully. Starting exploration strategy...
+[2026-11-11 08:12:59] WARNING (nni.nas.evaluator.pytorch.lightning) Validation dataloaders are missing. Safe to ignore this warning when using one-shot strategy.
+[2026-11-11 08:47:25] INFO (nni.nas.experiment.experiment) Waiting for models submitted to engine to finish...
+[2026-11-11 08:47:25] INFO (nni.nas.experiment.experiment) Experiment is completed.
+[2026-11-11 08:47:25] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 09:17:42] INFO (nni) Final result: 0.880886435508728
+[2026-11-11 09:39:28] INFO (nni.nas.experiment.config.experiment) Config is not provided. Will try to infer.
+[2026-11-11 09:39:28] INFO (nni.nas.experiment.config.experiment) Strategy is found to be a one-shot strategy. Setting execution engine to "sequential" and format to "raw".
+[2026-11-11 09:39:28] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 09:39:28] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 09:39:28] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 09:39:28] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 09:39:28] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 09:39:28] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 09:39:28] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 09:39:28] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 09:39:28] WARNING (nni.nas.oneshot.pytorch.strategy) Checkpoint callback does not have last_model_path or best_model_path attribute. Either the strategy has not started, or it did not save any checkpoint: <pytorch_lightning.callbacks.model_checkpoint.ModelCheckpoint object at 0x7f8387b3f150>
+[2026-11-11 09:39:28] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 09:39:28] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 09:39:28] INFO (nni.nas.experiment.experiment) Checkpoint saved to /home/cc/TESI_FILIPPO_LUCCHESI/DartsCheckpoints_DoReFa_GTSDB/1qltgsze/checkpoint.
+[2026-11-11 09:39:28] INFO (nni.nas.experiment.experiment) Experiment initialized successfully. Starting exploration strategy...
+[2026-11-11 09:39:28] WARNING (nni.nas.evaluator.pytorch.lightning) Validation dataloaders are missing. Safe to ignore this warning when using one-shot strategy.
+[2026-11-11 10:14:35] INFO (nni.nas.experiment.experiment) Waiting for models submitted to engine to finish...
+[2026-11-11 10:14:35] INFO (nni.nas.experiment.experiment) Experiment is completed.
+[2026-11-11 10:14:35] WARNING (nni.nas.experiment.config.experiment) `training_service` will be ignored for sequential execution engine.
+[2026-11-11 10:26:10] INFO (nni) Final result: 0.8235294222831726
+[2026-11-11 10:48:58] INFO (nni) Final result: 0.8823529481887817
