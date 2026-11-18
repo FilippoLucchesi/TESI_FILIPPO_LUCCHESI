@@ -1,0 +1,14 @@
+{
+  "layer_1_op": 0,
+  "layer_2_op": 1,
+  "layer_3_op": 0,
+  "layer_4_op": 2,
+  "layer_5_op": 0,
+  "layer_6_op": 0,
+  "layer_7_op": 2,
+  "layer_2_down": 1,
+  "layer_4_down": 0,
+  "layer_7_down": 0,
+  "_search_space_version": "quant_attention_dilated_zero_v2",
+  "_attention_num_heads": 8
+}

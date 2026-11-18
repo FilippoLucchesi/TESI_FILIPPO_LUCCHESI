@@ -16,7 +16,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
-
+SIZE = 48
 # ---------------------------------------------------------------------------
 # Experiment data
 # ---------------------------------------------------------------------------
@@ -100,6 +100,17 @@ RESULTS = [
         "ci_low": 87.2576,
         "ci_high": 93.3518,
     },
+    {
+        "dataset": "GTSDB",
+        "bits": 6,
+        "method": "DoReFa",
+        "validation_loss": 0.2913,
+        "accuracy": 92.5208,
+        "bootstrap_min": 86.7036,
+        "bootstrap_max": 96.1219,
+        "ci_low": 89.7507,
+        "ci_high": 95.0139,
+    },
 ]
 
 
@@ -182,7 +193,7 @@ def make_plot(
         for result in results
     ]
 
-    fig, ax = plt.subplots(figsize=(11.5, 6.6), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(18, 15), constrained_layout=True)
     bars = ax.bar(
         positions,
         accuracies,
@@ -209,15 +220,15 @@ def make_plot(
     if y_min >= y_max:
         raise ValueError(f"y_min ({y_min}) must be below the plot maximum ({y_max}).")
     ax.set_ylim(y_min, y_max)
-    ax.set_ylabel("Validation accuracy (%)", fontsize=18)
+    ax.set_ylabel("Validation accuracy (%)", fontsize=SIZE-2)
     ax.set_xticks(positions, labels)
-    ax.tick_params(axis="x", labelsize=14)
-    ax.tick_params(axis="y", labelsize=14)
+    ax.tick_params(axis="x", labelsize=SIZE-10)
+    ax.tick_params(axis="y", labelsize=SIZE-10)
     ax.set_title(
-        "Scratch-model validation accuracy (95% bootstrap confidence intervals)",
-        fontsize=22,
+        "Scratch-model validation accuracy \n (95% bootstrap confidence intervals)",
+        fontsize=SIZE,
         fontweight="bold",
-        pad=16,
+        pad=40,
     )
     # ax.text(
     #     0.5,
@@ -247,7 +258,7 @@ def make_plot(
             value_text,
             ha="center",
             va="bottom",
-            fontsize=15,
+            fontsize=SIZE-15,
             fontweight="semibold",
         )
 
@@ -260,7 +271,7 @@ def make_plot(
             transform=ax.get_xaxis_transform(),
             ha="center",
             va="top",
-            fontsize=15,
+            fontsize=SIZE-2,
             fontweight="bold",
             color="#334155",
             clip_on=False,
@@ -281,13 +292,13 @@ def make_plot(
             label="DoReFa",
         )
     )
-    ax.legend(
-        handles=legend_handles,
-        loc="upper left",
-        ncols=4,
-        frameon=False,
-        fontsize=15,
-    )
+    # ax.legend(
+    #     handles=legend_handles,
+    #     loc="upper left",
+    #     ncols=2,
+    #     frameon=False,
+    #     fontsize=SIZE-10,
+    # )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor="white")

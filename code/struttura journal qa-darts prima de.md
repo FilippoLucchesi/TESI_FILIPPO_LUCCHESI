@@ -82,7 +82,19 @@ Min val acc (bootstrap): 82.5100%
 
 
 
-6bit CIFAR-10
+2bit CIFAR-10 DoReFa
+
+Validation Loss: 1.4603, Accuracy: 48.6500%
+
+Max val acc (bootstrap): 50.3400%
+
+Min val acc (bootstrap): 46.9500%
+
+95% CI (bootstrap acc): \[47.7295%, 49.6803%]
+
+
+
+6bit CIFAR-10 LSQ
 
 Validation Loss: 0.3920, Accuracy: 90.4800%
 
@@ -94,7 +106,7 @@ Min val acc (bootstrap): 89.5200%
 
 
 
-4bit CIFAR-10
+4bit CIFAR-10 LSQ
 
 Validation Loss: 0.3623, Accuracy: 89.5300%
 
@@ -106,7 +118,7 @@ Min val acc (bootstrap): 88.6500%
 
 
 
-2bit CIFAR-10
+2bit CIFAR-10 LSQ
 
 Validation Loss: 0.5149, Accuracy: 82.7200%
 
@@ -116,9 +128,9 @@ Min val acc (bootstrap): 81.1600%
 
 95% CI (bootstrap acc): \[82.0000%, 83.4600%]
 
+&#x20;
 
-
-6bit GTSDB
+6bit GTSDB LSQ
 
 Validation Loss: 0.1189, Accuracy: 97.2299%
 
@@ -130,7 +142,7 @@ Min val acc (bootstrap): 94.4598%
 
 
 
-4bit GTSDB
+4bit GTSDB LSQ
 
 Validation Loss: 0.1822, Accuracy: 95.2909%
 
@@ -142,7 +154,7 @@ Min val acc (bootstrap): 91.4127%
 
 
 
-2bit GTSDB
+2bit GTSDB LSQ
 
 Validation Loss: 0.3863, Accuracy: 90.5817%
 
@@ -151,6 +163,42 @@ Max val acc (bootstrap): 95.5679%
 Min val acc (bootstrap): 85.8726%
 
 95% CI (bootstrap acc): \[87.2576%, 93.3518%]
+
+
+
+6bit GTSDB DoReFa
+
+Validation Loss: 0.2913, Accuracy: 92.5208%
+
+Max val acc (bootstrap): 96.1219%
+
+Min val acc (bootstrap): 86.7036%
+
+95% CI (bootstrap acc): \[89.7507%, 95.0139%]
+
+
+
+4bit GTSDB DoReFa
+
+Validation Loss: 0.3221, Accuracy: 91.1357%
+
+Max val acc (bootstrap): 95.8449%
+
+Min val acc (bootstrap): 86.4266%
+
+95% CI (bootstrap acc): \[88.3657%, 93.6357%]
+
+
+
+2bit GTSDB DoReFa
+
+Validation Loss: 0.4614, Accuracy: 86.7036%
+
+Max val acc (bootstrap): 91.4127%
+
+Min val acc (bootstrap): 80.8864%
+
+95% CI (bootstrap acc): \[83.1025%, 90.0346%]
 
 
 
@@ -189,11 +237,17 @@ Max val acc (bootstrap): 86.5000%
 
 Min val acc (bootstrap): 84.2500%
 
-95% CI (bootstrap acc): \[84.8098%, 86.2000%]	
-
-LSQ
+95% CI (bootstrap acc): \[84.8098%, 86.2000%]
 
 
 
+LSQ 6A2S CIFAR
 
+Validation Loss: 0.5184, Accuracy: 82.7100%
+
+Max val acc (bootstrap): 84.2200%
+
+Min val acc (bootstrap): 81.5100%
+
+95% CI (bootstrap acc): \[81.9597%, 83.4000%]
 
